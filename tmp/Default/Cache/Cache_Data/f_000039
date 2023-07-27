@@ -1,0 +1,869 @@
+(function (_win, _doc, undefined) {
+
+    var ci_host = 'https://ads.connectedinteractive.com/';
+    var ci_host_rdr = 'https://rdr.connectedinteractive.com/';
+    var cdn_host = 'https://d3htn85c6cao65.cloudfront.net/';
+    var sdk_version = '104';
+    var sdk_name = 'CII_Lib';
+    var app_key = '_blank_';
+    var debug_mode = false;
+    var debug_container = false;
+    var js_uuid = _generateUUID();
+    var identifying = false;
+    var app_open = false;
+    var total_js_files = 0;
+    var js_files_loaded = 0;
+    var seconds_elapsed = 0;
+    var pool_settings = {};
+    var web_sync_dmp_providers = {'ttd': 2, 'ar': 3};
+    var pool_initialized = false;
+    var pool_queue = [];
+    var viewable_confirmations = 0;
+    var viewable_timer = null;
+    var viewable_intersect = false;
+    var observer_intersect = null;
+    var callback_object = 'ConnectTracker';
+    var tracker_object;
+
+    if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+        if (window.location.hostname === 'localhost') ci_host = '/localhost/';
+        if (window.location.hostname === 'localhost') ci_host_rdr = '/localhost/';
+        if (window.location.hostname === 'platform-local.connectedinteractive.com' || debug_mode) ci_host_rdr = '//rdr-local.connectedinteractive.com/';
+        if (window.location.hostname === 'platform-local.connectedinteractive.com' || debug_mode) ci_host = '//platform-local.connectedinteractive.com/';
+    }
+
+    if (typeof _win.eDealerTracker !== 'undefined') {
+        console.log('eDealer tracker');
+        callback_object = 'eDealerTracker';
+        tracker_object = _win.eDealerTracker;
+
+        ci_host = '//platform.edealer.ca/';
+    } else {
+        console.log('default tracker');
+        tracker_object = _win.ConnectTracker;
+    }
+
+    var hidden = "hidden";
+    var window_status = "visible";
+
+    // Standards:
+    if (hidden in document) document.addEventListener("visibilitychange", onhiddenchange);
+    else if ((hidden = "mozHidden") in document) document.addEventListener("mozvisibilitychange", onhiddenchange);
+    else if ((hidden = "webkitHidden") in document) document.addEventListener("webkitvisibilitychange", onhiddenchange);
+    else if ((hidden = "msHidden") in document) document.addEventListener("msvisibilitychange", onhiddenchange);
+    // IE 9 and lower:
+    else if ("onfocusin" in document) document.onfocusin = document.onfocusout = onhiddenchange;
+    // All others:
+    else window.onpageshow = window.onpagehide = window.onfocus = window.onblur = onhiddenchange;
+
+    function onhiddenchange(evt) {
+        var v = "visible",
+            h = "hidden",
+            evtMap = {
+                focus: v,
+                focusin: v,
+                pageshow: v,
+                blur: h,
+                focusout: h,
+                pagehide: h
+            };
+
+        evt = evt || window.event;
+        if (evt.type in evtMap) window_status = evtMap[evt.type];
+        else window_status = this[hidden] ? "hidden" : "visible";
+    }
+
+    if (document[hidden] !== undefined) onhiddenchange({
+        type: document[hidden] ? "blur" : "focus"
+    });
+
+    function currentLandingURL() {
+        var full_url, landing_url, url_params;
+        if (window.self !== window.top) {
+            full_url = document.referrer;
+            landing_url = document.referrer.split(/\?(.+)?/)[0];
+            url_params = document.referrer.split(/\?(.+)?/)[1] || "none";
+        } else {
+            full_url = window.location.href;
+            landing_url = window.location.href.split(/\?(.+)?/)[0];
+            url_params = window.location.href.split(/\?(.+)?/)[1] || "none";
+        }
+
+        return [full_url, landing_url, url_params];
+    }
+
+    function trackTimespent() {
+        var urls = currentLandingURL();
+
+        setInterval(trackTimespent_interval, 5000);
+
+        function trackTimespent_interval() {
+            if (seconds_elapsed > 1800) return;
+            if (window_status === hidden) return;
+
+            seconds_elapsed += 5;
+
+            _getJSON(ci_host + "timespent/track_time/" + sdk_version + "/" + app_key + "?"  + get_dmps() + "&ci_js_uuid="+ encodeURIComponent(js_uuid) + "&" + "time_seconds=" + seconds_elapsed + "&" + "url=" + encodeURIComponent(urls[0]) + "&" + "cb=" + Date.now(),
+                function (err, data) {
+                    if (err !== null) {
+                        _log('warn', 'Something went wrong tracking time: ' + err)
+                    } else {
+                        _insertExtraTrackers(data);
+                    }
+                }
+            );
+        }
+    }
+
+    /*var vis = (function(){
+        var stateKey, eventKey, keys = {
+            hidden: "visibilitychange",
+            webkitHidden: "webkitvisibilitychange",
+            mozHidden: "mozvisibilitychange",
+            msHidden: "msvisibilitychange"
+        };
+        for (stateKey in keys) {
+            if (stateKey in document) {
+                eventKey = keys[stateKey];
+                break;
+            }
+        }
+        return function(c) {
+            if (c) document.addEventListener(eventKey, c);
+            return !document[stateKey];
+        }
+    })();*/
+
+    var redir_hash = '_blank_';
+    var last_args = [];
+    var last_method = '';
+
+    if (!window.console) console = {
+        log: function () {
+        }
+    };
+
+    function _log(level, text) {
+        var args = '';
+        if (last_args instanceof Array) {
+            args = last_args.join();
+        }
+        text = sdk_name + ' ' + last_method + '(' + args + '): ' + text;
+
+        console.log(text);
+        if (debug_container) {
+            var debug_container_object = document.getElementById(debug_container);
+            if (debug_container_object !== null) {
+                var log_text = document.createElement("p");
+                log_text.innerHTML = text;
+                debug_container_object.appendChild(log_text);
+            }
+        }
+
+        if (level === 'error') {
+            throw new Error(text);
+        }
+    }
+
+    if (!Date.now) {
+        _log('info', 'Date.now polyfilled done.');
+        Date.now = function now() {
+            return new Date().getTime();
+        };
+    }
+
+    function _addPixel(url) {
+        //insert pixel
+        var image = new Image();
+        if (debug_mode) {
+            image.onload = function() {_log('debug', 'SUCCESS: Image '+url+' loaded')};
+            image.onerror = function() {_log('debug', 'ERROR: Image '+url+' failed')};
+        }
+        image.src = url;
+    }
+
+    function _strStarts(data, input) {
+        if (data.length < input.length) return false;
+        return data.substring(0, input.length) === input
+    }
+
+    function _external_js_loaded() {
+        js_files_loaded++;
+        if (js_files_loaded === total_js_files) {
+            _log('debug', 'All external JS files loaded');
+            //restore document.write;
+            if (typeof document.writeTemp !== 'undefined') {
+                document.write = document.writeTemp;
+            }
+        }
+    }
+
+    function initPool(_app_key) {
+        //an option is to do a call to platform with the app_key and that will redirect to the proper pool client id
+        if (document && document.body) {
+            console.log(web_sync_dmp_providers.length);
+            console.log(web_sync_dmp_providers.length);
+            for (const key in web_sync_dmp_providers) {
+                if (web_sync_dmp_providers.hasOwnProperty(key)) {
+                    var url = get_cc_extr_url(key, '66kj98h');
+                    if (!url) continue;
+                    // Make the JSONP call
+                    var tempScriptTag = document.createElement('script');
+                    tempScriptTag.type = 'text/javascript';
+                    tempScriptTag.src = url;
+                    document.body.appendChild(tempScriptTag);
+                }
+            }
+        }
+    }
+
+    function get_dmps() {
+        var pool_ids = '';
+
+        for (const key in pool_settings) {
+            if (pool_settings.hasOwnProperty(key)) {
+                if (pool_ids !== '') {
+                    pool_ids += '&'
+                }
+                pool_ids += "pool_info[]=" + encodeURIComponent(pool_settings[key].pid + ";" + pool_settings[key].dmp_id + ";" + pool_settings[key].tpid + ";")
+            }
+        }
+
+        if (pool_ids === '') {
+            pool_ids = 'pool_none=1';
+        }
+        return pool_ids;
+    }
+
+    function _getJSON(url, callback, responseType) {
+        if (typeof responseType === 'undefined') responseType = 'json';
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.responseType = responseType;
+        xhr.withCredentials = true;
+        xhr.onload = function () {
+            var status = xhr.status;
+            if (status === 200) {
+                callback(null, xhr.response);
+            } else {
+                callback(status, xhr.response);
+            }
+        };
+        xhr.send();
+    }
+
+
+    //Source: https://www.sitepoint.com/insert-in-place-without-documentwrite/
+    function _locate_this_script() {
+        var scripts = document.getElementsByTagName('script');
+        var library_name = '/connect_tracker_v' + sdk_version  + '.js';
+        for (var i = 0; i < scripts.length; i++) {
+            var script_src = scripts[i].innerHTML;
+            if (script_src.indexOf(library_name) !== -1) {
+                return scripts[i];
+            }
+        }
+        return false;
+    }
+
+    function _insertExtraTrackers(data) {
+        //store the original document.write to restore it later
+        if (data instanceof Array) {
+            for (var i = 0; i < data.length; i++) {
+                var tag = data[i];
+                if (_strStarts(tag, 'http') || _strStarts(tag, '//')) {
+                    //add image tags (straight URLs)
+                    _addPixel(tag);
+                } else {
+                    //add javascript tags
+                    if (typeof document.writeTemp === 'undefined') {
+                        document.writeTemp = document.write;
+                        document.write = function(s) {
+                            _setHTML(document.body, s, false);
+                        };
+                    }
+                    //_log('warn', 'Skipping tracker #' + (i+1))
+                    if (document && document.body) {
+                        _setHTML(document.body, tag, false)
+                    }
+                }
+            }
+        }
+    }
+
+    //
+
+    function _check_pool_processing(provider) {
+        if (Object.keys(pool_settings).length === Object.keys(web_sync_dmp_providers).length) {
+            if (!pool_initialized) {
+                console.log('pool ready');
+                pool_initialized = true;
+                _process_pool_queue();
+            }
+        } else {
+            console.log('pool not ready ' + provider);
+        }
+    }
+
+    tracker_object.pool_callback = function pool_callback(data) {
+        var info_status = ' info missing.';
+        if (typeof data !== 'undefined') {
+            if (typeof data.provider !== 'undefined') {
+                if (typeof data[data.provider + '_id'] !== 'undefined') {
+                    console.log('We got the good stuff!' + data.provider);
+                    info_status = ' info found.';
+                    if (typeof pool_settings[data.provider] === 'undefined') {
+                        pool_settings[data.provider] = {};
+                    }
+                    pool_settings[data.provider].pid = data[data.provider + '_id'];
+                    pool_settings[data.provider].tpid = 1;
+                    pool_settings[data.provider].dmp_id = web_sync_dmp_providers[data.provider];
+                    setCookie("ci_"+data.provider+"_id", data[data.provider + '_id'], 30);
+                    //_addPixel(ci_host + "external/update_profile/" + test.uuid + "/" + test.dcs_region);
+                }
+            }
+            //need to send an request to plaform, so we can update the user profile with that information
+        }
+        console.log('Callback received!' + info_status);
+        _check_pool_processing();
+    };
+    //Source: https://stackoverflow.com/a/43733087
+    //Possible solution to script: https://stackoverflow.com/a/1197585
+    //Possible solution to script: https://stackoverflow.com/a/33756152
+    function _setHTML(container, html, clear) {
+        if (clear) container.innerHTML = "";
+
+        // Generate a parseable object with the html:
+        var dv = document.createElement("div");
+        dv.innerHTML = html;
+
+        // Handle edge case where innerHTML contains no tags, just text:
+        if (dv.children.length === 0) {
+            container.innerHTML = html;
+            return;
+        }
+
+        for (var i = 0; i < dv.children.length; i++) {
+            var c = dv.children[i];
+
+            // n: new node with the same type as c
+            var n = document.createElement(c.nodeName);
+
+            // copy all attributes from c to n
+            for (var j = 0; j < c.attributes.length; j++)
+                n.setAttribute(c.attributes[j].nodeName, c.attributes[j].nodeValue);
+
+            // If current node is a leaf, just copy the appropriate property (text or innerHTML)
+            if (c.children.length === 0) {
+                switch (c.nodeName) {
+                    case "SCRIPT":
+                        if (n.src) {
+                            //listen for laod events
+                            if (n.readyState){  //IE
+                                n.onreadystatechange = function(){
+                                    if (n.readyState === "loaded" ||
+                                        n.readyState === "complete"){
+                                        n.onreadystatechange = null;
+                                        _external_js_loaded();
+                                    }
+                                };
+                            } else {  //Others
+                                n.onload = function(){
+                                    _external_js_loaded();
+                                };
+                                n.onerror = function(){
+                                    _external_js_loaded();
+                                };
+                            }
+                            total_js_files++;
+                        }
+                        if (c.text) n.text = c.text;
+                        break;
+                    default:
+                        if (c.innerHTML) n.innerHTML = c.innerHTML;
+                        break;
+                }
+            }
+            // If current node has sub nodes, call itself recursively:
+            else {
+                _setHTML(n, c.innerHTML, false);
+            }
+            container.appendChild(n);
+        }
+    }
+
+    function callMethod(method, param) {
+        //console.log('');
+        //console.log('method calling.. ' + method);
+        var args = Array.prototype.slice.call(arguments, 1);
+        last_args = args;
+        last_method = method;
+
+        if (method === 'init') {
+            init(param)
+        } else if (method === 'impression') {
+            var temp_hash = redir_hash;
+            if (typeof param !== 'undefined') {
+                temp_hash = param;
+                redir_hash = param;
+                _log('debug', 'Overridden impression redir_hash: ' + temp_hash);
+            }
+            if (args.length === 0) {
+                impression_old_format(temp_hash);
+            } else {
+                //new version that includes the hash
+                impression(temp_hash);
+            }
+        } else if (method === 'trackEvent') {
+            trackEvent.apply(this, args);
+        } else if (method === 'identifyDevice') {
+            identifyDevice.apply(this, args);
+        } else if (method === 'identifyUser') {
+            identifyUser.apply(this, args);
+        } else if (method === 'trackTimespent') {
+            trackTimespent.apply(this, args);
+        } else if (method === 'debug') {
+            debug_mode = true;
+        } else if (method === 'debug_container') {
+            debug_container = param;
+        } else {
+            _log('error', 'Unknown function called');
+        }
+
+        //reset strings as we are done.
+        last_args = [];
+        last_method = '';
+    }
+
+    var current_ci = tracker_object;
+
+    function _replace_ci_class(document_ci) {
+        if (typeof document_ci !== 'undefined') {
+            document_ci.callMethod = callMethod;
+            document_ci.init = init;
+        }
+    }
+
+    function _process_queue() {
+        _log('info', 'Processing queue');
+        if (typeof current_ci !== 'undefined') {
+            while (current_ci.queue.length) {
+                var qb = current_ci.queue.shift();
+                callMethod.apply(current_ci, qb);
+            }
+        }
+    }
+
+    function _process_pool_queue() {
+        _log('info', 'Processing pool queue');
+        console.log(pool_settings);
+        console.log(JSON.stringify(pool_settings));
+        if (typeof current_ci !== 'undefined') {
+            while (pool_queue.length) {
+                var qb = pool_queue.shift();
+                callMethod.apply(this, qb);
+            }
+        }
+    }
+
+    function _appOpen() {
+        if (app_open === false ||
+            (typeof document.referrer !== 'undefined' &&
+                (document.referrer === '' //direct hit
+                    || document.referrer.indexOf(window.location.host) === -1 || document.referrer.indexOf(window.location.host) > 8) // another domain
+            )) {
+            app_open = true;
+            trackEvent('app_open');
+        }
+    }
+
+    function _generateUUID() {
+        var d = new Date().getTime();
+        var uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = (d + Math.random()*16)%16 | 0;
+            d = Math.floor(d/16);
+            return (c=='x' ? r : (r&0x3|0x8)).toString(16);
+        });
+        return uuid;
+    }
+
+    _replace_ci_class(tracker_object);
+    _process_queue();
+    //TODO: Consider effects of sending app open for all the impression included campaigns
+    //poolTimeout(); this forces the events out inmediately without waiting for any pool IDs
+
+    function poolTimeout() {
+        if (pool_initialized === false) {
+            pool_initialized = true;
+            _process_pool_queue();
+        }
+    }
+
+    /*Functions*/
+
+    function init(_app_key) {
+        if (app_key === _app_key) {
+            _log('debug', 'Already initiated to ' + app_key);
+            return;
+        }
+        app_key = _app_key;
+        _log('debug', 'Initiated to ' + app_key);
+        _appOpen();
+        initPool(_app_key);
+        setTimeout(poolTimeout, 5000);
+    }
+
+    function setCookie(name, value, days) {
+        var expires = "";
+        if (days) {
+            var date = new Date();
+            date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+            expires = "; expires=" + date.toUTCString();
+        }
+        document.cookie = name + "=" + (value || "") + expires + "; path=/; secure=true";
+    }
+
+    function get_cc_extr_url(provider, client_id) {
+        var dmpId;
+
+        // Look for a domain cookie first
+
+        var dmpIdCookie = false;
+        var start = document.cookie.indexOf('ci_'+provider+'_id');
+        if (start > -1) {
+            var valStartDc = document.cookie.indexOf('=', start);
+            if (valStartDc > 0) {
+                dmpIdCookie = false;
+                valStartDc++;
+                var valEndDc = document.cookie.indexOf(';', valStartDc);
+                valEndDc = valEndDc > 0 ? valEndDc : document.cookie.length;
+                dmpId = document.cookie.slice(valStartDc, valEndDc);
+            }
+        }
+
+        // If there was no domain cookie then check to see if there is an id cookie.
+
+        var idCookie = false;
+        if (!dmpIdCookie) {
+            var id;
+            start = document.cookie.indexOf('ci_uid');
+            if (start > -1) {
+                var valStartId = document.cookie.indexOf('=', start);
+                if (valStartId > 0) {
+                    idCookie = true;
+                    valStartId++;
+                    var valEndId = document.cookie.indexOf(';', valStartId);
+                    valEndId = valEndId > 0 ? valEndId : document.cookie.length;
+                    id = document.cookie.slice(valStartId, valEndId);
+                }
+            }
+        }
+        var cc_url = null;
+
+        if (provider === 'ar') {
+            cc_url = 'https://a.audrte.com/get?';
+            //https://ads.connectedinteractive.com/api/web_sync/ar?ar_puid=js_uuid&ar_id=$UID
+            var redirect_callback_url = 'https://ads.connectedinteractive.com/api/web_sync/ar?'
+            if (dmpId) {
+                if (typeof pool_settings[provider] === 'undefined') {
+                    pool_settings[provider] = {};
+                }
+                pool_settings[provider].pid = dmpId;
+                pool_settings[provider].tpid = 0;
+                pool_settings[provider].dmp_id = 3;
+                _check_pool_processing(provider);
+                redirect_callback_url = redirect_callback_url + provider+'_id=' + dmpId;
+            } else if (idCookie) {
+                redirect_callback_url = redirect_callback_url + provider+'_puid=' + id;
+            } else {
+                redirect_callback_url = redirect_callback_url + provider+'_puid=' + js_uuid;
+            }
+            redirect_callback_url = redirect_callback_url + '&'+provider+'_id=$UID&callback=' + callback_object + '.pool_callback';
+            cc_url = cc_url + 'r=' + encodeURIComponent(redirect_callback_url);
+        } else if (provider === 'ttd') {
+            cc_url = 'https://match.adsrvr.org/track/cmf/generic?';
+            if (dmpId) {
+                if (typeof pool_settings[provider] === 'undefined') {
+                    pool_settings[provider] = {};
+                }
+                pool_settings[provider].pid = dmpId;
+                pool_settings[provider].tpid = 0;
+                pool_settings[provider].dmp_id = 2;
+                _check_pool_processing(provider);
+                cc_url = cc_url + provider + '_id=' + dmpId;
+            } else if (idCookie) {
+                cc_url = cc_url + provider + '_pid=' + client_id + '&' + provider + '_puid=' + id;
+            } else {
+                cc_url = cc_url + provider + '_pid=' + client_id + '&' + provider + '_puid=' + js_uuid;
+            }
+            cc_url = cc_url + '&' + provider + '_tpi=1&gdpr=0&' + provider + '_passthrough=' + encodeURIComponent('callback=' + callback_object + '.pool_callback');
+        }
+        return cc_url;
+    }
+
+    function impression_old_format(param) {
+        //Fire CI's pixel
+        _addPixel(ci_host_rdr + "ngage/imp/" + param + "?request_uuid=" + encodeURIComponent(js_uuid) + "&cb=" + Date.now());
+        //Fire DMP's pixel
+        _addPixel(ci_host + "external/dmp/impression/" + param + "?cb=" + Date.now());
+
+        confirmViewability();
+    }
+
+    function viewPortChanged(e) {
+        if (isElementInViewport(document.getElementById('cii_img_viewable')) && viewable_intersect) {
+            viewable_confirmations = 1;
+            if (viewable_timer === null) {
+                viewable_timer = setTimeout(function() {
+                    viewable_confirmations++;
+                    if (viewable_confirmations === 2) {
+                        _log('debug', 'Viewability: confirmed enough time');
+                        _getJSON(ci_host + "ban/viewability/" + redir_hash + "/" + encodeURIComponent(js_uuid) + "?cb=" + Date.now(),
+                            function (err, data) {
+                                if (err !== null) {
+                                    _log('warn', 'Something went wrong pulling trackers: ' + err)
+                                } else {
+                                    _insertExtraTrackers(data);
+                                }
+                            }
+                        );
+                        if (observer_intersect !== null) {
+                            observer_intersect.disconnect();
+                        }
+
+                        if (window.removeEventListener) {
+                            window.removeEventListener('DOMContentLoaded', viewPortChanged, false);
+                            window.removeEventListener('load', viewPortChanged, false);
+                            window.removeEventListener('scroll', viewPortChanged);
+                            window.removeEventListener('resize', viewPortChanged, false);
+                        } else if (window.attachEvent)  {
+                            window.detachEvent('onDOMContentLoaded', viewPortChanged); // IE9+ :(
+                            window.detachEvent('onload', viewPortChanged);
+                            window.detachEvent('onscroll', viewPortChanged);
+                            window.detachEvent('onresize', viewPortChanged);
+                        }
+                    }
+                }, 1000)
+            }
+        } else {
+            clearTimeout(viewable_timer);
+            viewable_timer = null;
+            viewable_confirmations = 0;
+        }
+    }
+
+    function impression(param) {
+
+        //Fire CI's pixel
+        _addPixel(ci_host_rdr + "ngage/imp/" + param + "?request_uuid=" + encodeURIComponent(js_uuid) + "&rdr_no_redir=1&cb=" + Date.now());
+
+        //TODO: move this to the third party trackers
+        _addPixel(ci_host + "external/dmp/impression/" + param);
+
+        _getJSON(cdn_host + "tracking/" + param + ".json?cb=" + Date.now(),
+            function (err, data) {
+                if (err !== null) {
+                    _log('warn', 'Something went wrong pulling trackers: ' + err)
+                } else {
+                    _insertExtraTrackers(data);
+                }
+            }
+        );
+
+        confirmViewability();
+    }
+
+    function confirmViewability() {
+        var ci_script_location = _locate_this_script();
+        if (ci_script_location !== false || (document && document.body)) {
+            var img_viewable = document.createElement("img");
+            img_viewable.id = "cii_img_viewable";
+
+            if (ci_script_location) {
+                ci_script_location.parentNode.insertBefore(img_viewable, ci_script_location.nextSibling);
+            } else if (document && document.body) {
+                document.body.appendChild(img_viewable);
+            }
+
+            if (window.addEventListener) {
+                window.addEventListener('DOMContentLoaded', viewPortChanged, false);
+                window.addEventListener('load', viewPortChanged, false);
+                window.addEventListener('scroll', viewPortChanged);
+                window.addEventListener('resize', viewPortChanged, false);
+            } else if (window.attachEvent)  {
+                window.attachEvent('onDOMContentLoaded', viewPortChanged); // IE9+ :(
+                window.attachEvent('onload', viewPortChanged);
+                window.attachEvent('onscroll', viewPortChanged);
+                window.attachEvent('onresize', viewPortChanged);
+            }
+            //IOS
+            //reqAnimFrame(callback);
+            //Other then IOS
+            intersectionObserver(callback);
+        }
+    }
+
+
+    function intersectionObserver(callback)
+    {
+        if (('IntersectionObserver' in window)) {
+            //Polyfill https://github.com/w3c/IntersectionObserver/tree/master/polyfill
+            var element = document.getElementById("cii_img_viewable");
+            var options = {
+                threshold: 1.0
+            };
+
+            function callbackObserver(entries, observer) {
+                entries.forEach(function (entry) {
+                    callback.call(this, entry.intersectionRatio === 0)
+                });
+            }
+
+            observer_intersect = new IntersectionObserver(callbackObserver, options);
+            observer_intersect.observe(element);
+        } else {
+            _log('debug', 'intersectionObserver not supported');
+        }
+    }
+
+    function reqAnimFrame(callback)
+    {
+        var lastCalled;
+        var fps;
+        var timediff;
+
+        function requestAnimFrame()
+        {
+            if (!lastCalled)
+            {
+                lastCalled = Date.now();
+                fps = 0;
+            }
+            timediff = (Date.now() - lastCalled);
+
+            if (timediff <= 1000)
+            {
+                fps++;
+            }
+            else
+            {
+                lastCalled = Date.now();
+                fps = 0;
+            }
+            callback.call(this, fps <= 10);
+            window.requestAnimationFrame(requestAnimFrame);
+        }
+        window.requestAnimationFrame(requestAnimFrame);
+    }
+
+    function callback(isNotVisible)
+    {
+        viewable_intersect = !isNotVisible;
+        _log('debug', 'intersectionObserver: ' + viewable_intersect);
+        viewPortChanged();
+    }
+
+    function isElementInViewport (el) {
+
+        //special bonus for those using jQuery
+        if (typeof jQuery === "function" && el instanceof jQuery) {
+            el = el[0];
+        }
+
+        var rect = el.getBoundingClientRect();
+
+        return (
+            rect.top >= 0 &&
+            rect.left >= 0 &&
+            rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) && /*or $(window).height() */
+            rect.right <= (window.innerWidth || document.documentElement.clientWidth) /*or $(window).width() */
+        );
+    }
+
+
+    function trackEvent(event, value) {
+        var event_value = '';
+        var referrer_value = '-';
+
+        if (event === null) return;
+        if (event_value !== 'app_open' && app_open === false) _appOpen();
+
+        if (pool_initialized === false) {
+            [].splice.call(arguments, 0, 0, "trackEvent");
+            pool_queue.push(arguments);
+            return;
+        }
+        if (typeof event === 'object') {
+            if (typeof event.type !== 'undefined') {
+                value = JSON.stringify(event);
+                event = event.type;
+            }
+        }
+
+        if (typeof event === 'object' && event !== null && event.hasOwnProperty('type')) {
+            if (typeof event.type !== 'undefined') {
+                value = JSON.stringify(event);
+                event = event.type;
+            }
+        }
+        /*Upcoming compatibility when deprecating app_key in all the calls
+         if (typeof app_key !== 'undefined' && app_key.length !== 32) {
+            [].splice.call(arguments,0,1);
+            event.apply(this, arguments);
+            return;
+        }*/
+
+        if (typeof value !== 'undefined') {
+            event_value = "event_value=" + encodeURIComponent(value) + "&";
+        }
+
+        if (typeof document.referrer !== 'undefined') {
+            referrer_value = document.referrer;
+        }
+
+        referrer_value = "referrer=" + encodeURIComponent(referrer_value) + "&";
+
+        _getJSON(ci_host + "api/web/" + sdk_version + "/" + app_key + "/" + event + "?" + get_dmps() + "&ci_js_uuid=" + encodeURIComponent(js_uuid) + "&" + event_value + referrer_value + "cb=" + Date.now(),
+            function (err, data) {
+                if (err !== null) {
+                    _log('warn', 'Something went wrong pulling trackers: ' + err)
+                } else {
+                    _insertExtraTrackers(data);
+                }
+            }
+        );
+    }
+
+    function identifyDevice(distinct_id) {
+        if (typeof distinct_id === 'undefined') {
+            distinct_id = '';
+        }
+        console.log('identify device request ' + distinct_id);
+        _getJSON(ci_host + "api/identify/" + sdk_version + "/" + app_key + "?" + "distinct_id=" + encodeURIComponent(distinct_id)  + "&cb=" + Date.now(),
+            function (err, data) {
+                identifying = false;
+                if (err !== null) {
+                    _log('warn', 'Something went wrong identifying: ' + err)
+                } else {
+                    console.log('identified device success ' + distinct_id);
+                }
+            }
+        );
+    }
+
+    function identifyUser(distinct_id) {
+        if (typeof distinct_id === 'undefined') {
+            distinct_id = '';
+        }
+        console.log('identify user request ' + distinct_id);
+        _getJSON(ci_host + "api/identify_user/" + sdk_version + "/" + app_key + "?" + "distinct_id=" + encodeURIComponent(distinct_id)  + "&cb=" + Date.now(),
+            function (err, data) {
+                if (err !== null) {
+                    _log('warn', 'Something went wrong identifying: ' + err)
+                } else {
+                    console.log('identified user success ' + distinct_id);
+                }
+            }
+        );
+    }
+}(window, document));
