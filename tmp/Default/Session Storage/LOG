@@ -1,7 +1,9 @@
-2023/07/27-10:42:27.977 12c Reusing MANIFEST C:\Users\Wallace\Documents\puppeteer-scraper-scrolling-page\tmp\Default\Session Storage/MANIFEST-000001
-2023/07/27-10:42:27.983 12c Recovering log #3
-2023/07/27-10:42:27.984 12c Level-0 table #3: started
-2023/07/27-10:42:28.012 12c Level-0 table #3: 13123 bytes OK
-2023/07/27-10:42:28.013 12c Recovering log #4
-2023/07/27-10:42:28.019 12c Reusing old log C:\Users\Wallace\Documents\puppeteer-scraper-scrolling-page\tmp\Default\Session Storage/000004.log 
-2023/07/27-10:42:28.033 12c Delete type=0 #3
+2023/07/27-11:33:36.790 377c Reusing MANIFEST C:\Users\Wallace\Documents\puppeteer-scraper-scrolling-page\tmp\Default\Session Storage/MANIFEST-000001
+2023/07/27-11:33:36.800 377c Recovering log #6
+2023/07/27-11:33:36.800 377c Level-0 table #8: started
+2023/07/27-11:33:36.823 377c Level-0 table #8: 15661 bytes OK
+2023/07/27-11:33:36.825 377c Recovering log #7
+2023/07/27-11:33:36.831 377c Reusing old log C:\Users\Wallace\Documents\puppeteer-scraper-scrolling-page\tmp\Default\Session Storage/000007.log 
+2023/07/27-11:33:36.837 377c Delete type=0 #6
+2023/07/27-11:34:36.698 2b18 Level-0 table #10: started
+2023/07/27-11:34:36.719 2b18 Level-0 table #10: 10128 bytes OK

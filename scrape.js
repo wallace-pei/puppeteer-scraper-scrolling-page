@@ -30,6 +30,7 @@ async function autoScroll(page){
   const cluster = await Cluster.launch({
     concurrency: Cluster.CONCURRENCY_PAGE,
     maxConcurrency: 1,
+    timeout: 90000,
     monitor: true,
     puppeteerOptions: {
       headless: false,

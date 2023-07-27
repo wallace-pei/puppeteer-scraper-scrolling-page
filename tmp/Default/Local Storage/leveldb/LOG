@@ -1,8 +1,12 @@
-2023/07/27-10:42:27.973 1764 Reusing MANIFEST C:\Users\Wallace\Documents\puppeteer-scraper-scrolling-page\tmp\Default\Local Storage\leveldb/MANIFEST-000001
-2023/07/27-10:42:27.979 1764 Recovering log #3
-2023/07/27-10:42:27.982 1764 Level-0 table #3: started
-2023/07/27-10:42:28.004 1764 Level-0 table #3: 14197 bytes OK
-2023/07/27-10:42:28.020 1764 Delete type=0 #3
-2023/07/27-10:43:25.377 12c Level-0 table #6: started
-2023/07/27-10:43:25.465 12c Level-0 table #6: 9446 bytes OK
-2023/07/27-10:43:25.471 12c Delete type=0 #4
+2023/07/27-11:33:36.796 2b18 Reusing MANIFEST C:\Users\Wallace\Documents\puppeteer-scraper-scrolling-page\tmp\Default\Local Storage\leveldb/MANIFEST-000001
+2023/07/27-11:33:36.800 2b18 Recovering log #13
+2023/07/27-11:33:36.801 2b18 Level-0 table #16: started
+2023/07/27-11:33:36.895 2b18 Level-0 table #16: 21516 bytes OK
+2023/07/27-11:33:36.896 2b18 Recovering log #15
+2023/07/27-11:33:36.898 2b18 Level-0 table #17: started
+2023/07/27-11:33:36.929 2b18 Level-0 table #17: 26555 bytes OK
+2023/07/27-11:33:36.937 2b18 Delete type=0 #13
+2023/07/27-11:33:36.937 2b18 Delete type=0 #15
+2023/07/27-11:34:36.487 2b18 Level-0 table #20: started
+2023/07/27-11:34:36.582 2b18 Level-0 table #20: 27516 bytes OK
+2023/07/27-11:34:36.591 2b18 Delete type=0 #18
